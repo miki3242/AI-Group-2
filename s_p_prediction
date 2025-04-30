@@ -1,0 +1,102 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import classification_report, accuracy_score
+
+# Load the data
+df = pd.read_csv('student_data.csv')
+
+# Data Cleaning
+# Fix known data entry errors
+df['Notes'] = df['Notes'].replace('6', np.nan)  # Handle invalid '6' entries
+df['Notes'] = df['Notes'].fillna(df['Notes'].mode()[0])
+
+# Convert scholarship percentages to numerical values
+def clean_scholarship(value):
+    if value == 'None':
+        return 0
+    return int(value.replace('%', ''))
+
+df['Scholarship'] = df['Scholarship'].apply(clean_scholarship)
+
+# Handle age ranges (convert to numerical)
+df['Student_Age'] = df['Student_Age'].apply(lambda x: x.split('-')[0] if '-' in x else x).astype(int)
+
+# Convert Weekly_Study_Hours to numerical
+df['Weekly_Study_Hours'] = pd.to_numeric(df['Weekly_Study_Hours'], errors='coerce').fillna(0)
+
+# Data Exploration
+print("Dataset Shape:", df.shape)
+print("\nMissing Values:")
+print(df.isnull().sum())
+
+# Visualize grade distribution
+plt.figure(figsize=(10, 6))
+sns.countplot(x='Grade', data=df, order=df['Grade'].value_counts().index)
+plt.title('Grade Distribution')
+plt.show()
+
+# Preprocessing
+# Define categorical and numerical features
+categorical_features = ['Sex', 'High_School_Type', 'Additional_Work', 
+                       'Sports_activity', 'Transportation', 'Attendance',
+                       'Reading', 'Notes', 'Listening_in_Class', 'Project_work']
+
+numerical_features = ['Student_Age', 'Scholarship', 'Weekly_Study_Hours']
+
+# Create preprocessing pipeline
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', 'passthrough', numerical_features),
+        ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
+    ])
+
+# Define target variable
+y = df['Grade']
+X = df.drop(['Grade', 'Student_ID'], axis=1)  # Remove non-predictive columns
+
+# Split data
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42)
+
+# Create pipeline with preprocessing and model
+model = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', RandomForestClassifier(n_estimators=100, random_state=42))
+])
+
+# Train model
+model.fit(X_train, y_train)
+
+# Evaluate model
+y_pred = model.predict(X_test)
+print("\nModel Accuracy:", accuracy_score(y_test, y_pred))
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+# Feature Importance
+# Get feature names after one-hot encoding
+feature_names = numerical_features + \
+    list(model.named_steps['preprocessor'].named_transformers_['cat']\
+        .get_feature_names_out(categorical_features))
+
+# Get feature importances
+importances = model.named_steps['classifier'].feature_importances_
+
+# Create DataFrame for visualization
+feature_importances = pd.DataFrame({
+    'Feature': feature_names,
+    'Importance': importances
+}).sort_values('Importance', ascending=False)
+
+# Plot top 20 features
+plt.figure(figsize=(12, 8))
+sns.barplot(x='Importance', y='Feature', data=feature_importances.head(20))
+plt.title('Top 20 Important Features')
+plt.show()
